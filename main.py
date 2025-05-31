@@ -3,7 +3,7 @@ import numpy as np
 from scipy.signal import convolve, windows
 import time
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore, QtWidgets
+from pyqtgraph.Qt import QtCore, QtWidgets, QtGui
 import multiprocessing as mp
 
 
@@ -210,6 +210,17 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         ay.setTicks([y_ticks])
 
         self.spec_plot.setYLink(self.heatmap_plot)
+        
+        # 一番下にtextを表示
+        self.nextRow()
+        self.info_text = pg.LabelItem(
+            "Info",
+            justify="center",
+            size="10pt",
+            color="w",
+            background="k",
+        )
+        self.addItem(self.info_text, row=1, col=0, colspan=heatmap_width + spectrogram_width)
 
         for i in range(heatmap_width + spectrogram_width):
             self.ci.layout.setColumnStretchFactor(i, 1)
@@ -223,7 +234,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             right=0,
         )
 
-    def update_plot(self, freq_data):
+    def update_plot(self, freq_data, info_text):
         freq_data = self.interpolate_freq_data(freq_data)
 
         self.update_counter += 1
@@ -234,6 +245,9 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         if self.update_counter % self.update_interval == 0:
             self.spec_curve.setData(freq_data, self.y_pos_data)
             self.heatmap_item.setImage(self.heatmap_data, autoLevels=False)
+            
+            self.info_text.setText(f"<div style='white-space: pre; font-family: \"Courier New\", Courier, monospace;'>{info_text}</div>")
+            
             QtWidgets.QApplication.processEvents()
             return True
         return False
@@ -260,15 +274,9 @@ def fft_worker_func(sampler, fft_processor, result_queue, stop_event):
 
         freq_data = fft_processor.process(audio_data)
 
-        # max_amplitude = np.max(np.abs(audio_data))
-        # peak_frequency = np.argmax(freq_data) * fft_processor.delta_hertz
         sample_freq = rate_monitor.add_sample(time.time_ns())
-        # print(
-        #     f"Max Amp: {max_amplitude:.2f}, Peak Freq: {peak_frequency:.2f}Hz, Sample Freq: {sample_freq:.2f}Hz"
-        # )
-        print(f"Sample Frequency: {sample_freq:.2f}Hz")
 
-        result_queue.put((freq_data))
+        result_queue.put((freq_data, sample_freq))
 
 
 if __name__ == "__main__":
@@ -303,7 +311,7 @@ if __name__ == "__main__":
         chunk_size=chunk_size,
         smoothing_log=np.log(0.1)
         * delta_hertz
-        / (sampler.rate * 10),  # 周波数 / 10 ぐらいの分解能
+        / (sampler.rate * 30),  # 周波数 / 30 ぐらいの分解能
     )
 
     result_queue = mp.Queue()
@@ -318,15 +326,16 @@ if __name__ == "__main__":
 
     def update_plot():
         while not result_queue.empty():
-            freq_data = result_queue.get()
+            freq_data, sample_freq = result_queue.get()
 
             max_amplitude = np.max(freq_data)
             peak_frequency = np.argmax(freq_data) * delta_hertz
-            print(
-                f"Max Amplitude: {max_amplitude:.2f}, Peak Frequency: {peak_frequency:.2f}Hz, Queue Size: {result_queue.qsize()}"
+            info_text = (
+                f"Max: {max_amplitude:>8.1f}, Peak: {peak_frequency:>8.1f}Hz, "
+                f"Sample Rate: {sample_freq:>8.1f}Hz, Queue Size: {result_queue.qsize():>3d}"
             )
 
-            if data_plotter.update_plot(freq_data):
+            if data_plotter.update_plot(freq_data, info_text):
                 app.processEvents()
 
     timer.timeout.connect(update_plot)
