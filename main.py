@@ -128,12 +128,57 @@ class LowFreqFFT:
 
 
 class PlotUpdater:
-    def __init__(self, init_x_data, freq_points, delta_hertz, update_interval):
-        self.fig, self.ax = plt.subplots(figsize=(10, 6))
-        (self.data_plot,) = plt.plot(init_x_data, np.zeros_like(init_x_data), lw=2)
-        plt.xlim(50, freq_points * delta_hertz)
-        plt.xscale("log")
-        plt.ylim(0, 1000.0)
+    def __init__(
+        self, init_x_data, freq_points, delta_hertz, update_interval, heatmap_size
+    ):
+        low_cutoff = 50
+        heatmap_width = 3
+        spectrogram_width = 1
+
+        self.heatmap_size = heatmap_size
+        self.heatmap_data = np.zeros((heatmap_size, freq_points))
+
+        # heatpmap (3) | spectrogram (1)
+        self.fig, (self.ax_heatmap, self.ax_spec) = plt.subplots(
+            nrows=1,
+            ncols=2,
+            gridspec_kw={
+                "width_ratios": [heatmap_width, spectrogram_width],
+                "wspace": 0.1,
+            },
+            figsize=(12, 3),
+        )
+
+        self.ax_spec.set_title("Spectrogram")
+        (self.spec_plot,) = self.ax_spec.plot(
+            np.zeros_like(init_x_data), init_x_data, lw=2, animated=True,
+        )
+        # self.ax_spec.set_ylabel("Frequency (Hz)")
+        self.ax_spec.set_xlabel("Amplitude")
+        self.ax_spec.set_ylim(low_cutoff, freq_points * delta_hertz)
+        self.ax_spec.set_xlim(0, 1000.0)
+        self.ax_spec.set_yscale("log")
+        self.ax_spec.grid(True)
+
+        self.ax_heatmap.set_title("Heatmap")
+        self.heatmap_plot = self.ax_heatmap.imshow(
+            self.heatmap_data.T,
+            aspect="auto",
+            origin="lower",
+            cmap="viridis",
+            vmin=0,
+            vmax=1000.0,
+            extent=(-heatmap_size, 0, 0, freq_points * delta_hertz),
+            animated=True,
+        )
+        self.ax_heatmap.set_ylabel("Frequency (Hz)")
+        self.ax_heatmap.set_xlabel("Time")
+        self.ax_heatmap.set_ylim(low_cutoff, freq_points * delta_hertz)
+        self.ax_heatmap.set_xlim(-heatmap_size, 0)
+        self.ax_heatmap.set_yscale("log")
+        self.ax_heatmap.grid(True)
+
+        plt.ion()
         plt.show(block=False)
         self.fig.canvas.draw()
         self.background = self.fig.canvas.copy_from_bbox(self.fig.bbox)
@@ -143,10 +188,20 @@ class PlotUpdater:
 
     def update_plot(self, freq_data):
         self.update_counter += 1
+
+        heatmap_update_idx = self.update_counter % self.heatmap_size
+        self.heatmap_data[heatmap_update_idx, :] = freq_data
+
         if self.update_counter % self.update_interval == 0:
-            self.data_plot.set_ydata(freq_data)
             self.fig.canvas.restore_region(self.background)
-            self.ax.draw_artist(self.data_plot)
+            
+            self.spec_plot.set_xdata(freq_data)
+            self.ax_spec.draw_artist(self.spec_plot)
+
+            # self.heatmap_plot.set_array(np.roll(self.heatmap_data, heatmap_update_idx, axis=0).T)
+            self.heatmap_plot.set_array(self.heatmap_data.T)
+            self.ax_heatmap.draw_artist(self.heatmap_plot)
+            
             self.fig.canvas.blit(self.fig.bbox)
             self.fig.canvas.flush_events()
 
@@ -160,13 +215,14 @@ if __name__ == "__main__":
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
 
-    plot_update_rate = 30
+    plot_update_rate = 10
     update_interval = sampler.rate // chunk_size // plot_update_rate
     plot_updater = PlotUpdater(
         init_x_data=np.arange(freq_points) * delta_hertz,
         freq_points=freq_points,
         delta_hertz=delta_hertz,
         update_interval=update_interval,
+        heatmap_size=sampler.rate // chunk_size * 3,
     )
 
     stream = sampler.stream
