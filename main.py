@@ -1,8 +1,9 @@
 import pyaudio
 import numpy as np
 from scipy.signal import convolve, windows
-import matplotlib.pyplot as plt
 import time
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtCore, QtWidgets
 
 
 def select_audio_device():
@@ -127,64 +128,63 @@ class LowFreqFFT:
         return abs_freq
 
 
-class PlotUpdater:
+class DataPlotter(pg.GraphicsLayoutWidget):
     def __init__(
-        self, init_x_data, freq_points, delta_hertz, update_interval, heatmap_size
+        self, init_y_data, freq_points, delta_hertz, update_interval, heatmap_size
     ):
-        low_cutoff = 50
+        super().__init__()
+
+        low_cutoff = 1000
         heatmap_width = 3
         spectrogram_width = 1
 
+        self.init_y_data = init_y_data
         self.heatmap_size = heatmap_size
         self.heatmap_data = np.zeros((heatmap_size, freq_points))
 
-        # heatpmap (3) | spectrogram (1)
-        self.fig, (self.ax_heatmap, self.ax_spec) = plt.subplots(
-            nrows=1,
-            ncols=2,
-            gridspec_kw={
-                "width_ratios": [heatmap_width, spectrogram_width],
-                "wspace": 0.1,
-            },
-            figsize=(12, 3),
-        )
-
-        self.ax_spec.set_title("Spectrogram")
-        (self.spec_plot,) = self.ax_spec.plot(
-            np.zeros_like(init_x_data), init_x_data, lw=2, animated=True,
-        )
-        # self.ax_spec.set_ylabel("Frequency (Hz)")
-        self.ax_spec.set_xlabel("Amplitude")
-        self.ax_spec.set_ylim(low_cutoff, freq_points * delta_hertz)
-        self.ax_spec.set_xlim(0, 1000.0)
-        self.ax_spec.set_yscale("log")
-        self.ax_spec.grid(True)
-
-        self.ax_heatmap.set_title("Heatmap")
-        self.heatmap_plot = self.ax_heatmap.imshow(
-            self.heatmap_data.T,
-            aspect="auto",
-            origin="lower",
-            cmap="viridis",
-            vmin=0,
-            vmax=1000.0,
-            extent=(-heatmap_size, 0, 0, freq_points * delta_hertz),
-            animated=True,
-        )
-        self.ax_heatmap.set_ylabel("Frequency (Hz)")
-        self.ax_heatmap.set_xlabel("Time")
-        self.ax_heatmap.set_ylim(low_cutoff, freq_points * delta_hertz)
-        self.ax_heatmap.set_xlim(-heatmap_size, 0)
-        self.ax_heatmap.set_yscale("log")
-        self.ax_heatmap.grid(True)
-
-        plt.ion()
-        plt.show(block=False)
-        self.fig.canvas.draw()
-        self.background = self.fig.canvas.copy_from_bbox(self.fig.bbox)
-
         self.update_interval = update_interval
         self.update_counter = 0
+
+        self.setWindowTitle("FFT")
+        self.resize(1200, 600)
+
+        self.heatmap_plot = self.addPlot(
+            row=0, col=0, title="Heatmap", colspan=heatmap_width
+        )
+        self.heatmap_plot.setLabel("left", "Frequency (Hz)")
+        self.heatmap_plot.setLabel("bottom", "Time")
+        self.heatmap_plot.setYRange(low_cutoff, freq_points * delta_hertz)
+        self.heatmap_plot.setXRange(0, heatmap_size)
+        # self.heatmap_plot.setLogMode(y=True)
+        self.heatmap_plot.showGrid(x=True, y=True)
+        self.heatmap_plot.disableAutoRange()
+        self.heatmap_item = pg.ImageItem(
+            self.heatmap_data,
+            autoLevels=False,
+            levels=(0, 1000.0),
+            rect=pg.QtCore.QRectF(
+                0, low_cutoff, heatmap_size, freq_points * delta_hertz
+            ),
+        )
+        self.heatmap_plot.addItem(self.heatmap_item)
+
+        self.spec_plot = self.addPlot(
+            row=0, col=heatmap_width, title="Spectrogram", colspan=spectrogram_width
+        )
+        self.spec_plot.setLabel("left", "Frequency (Hz)")
+        self.spec_plot.setLabel("bottom", "Amplitude")
+        self.spec_plot.setYRange(low_cutoff, freq_points * delta_hertz)
+        self.spec_plot.setXRange(0, 1000.0)
+        # self.spec_plot.setLogMode(y=True)
+        self.spec_plot.showGrid(x=True, y=True)
+        self.spec_plot.disableAutoRange()
+        self.spec_curve = self.spec_plot.plot(
+            np.zeros_like(init_y_data), init_y_data, pen="w", name="Spectrogram Curve"
+        )
+        self.spec_plot.setTitle("Spectrogram")
+
+        # self.spec_plot.setXLink(self.heatmap_plot)
+        # self.spec_plot.setYLink(self.heatmap_plot)
 
     def update_plot(self, freq_data):
         self.update_counter += 1
@@ -193,20 +193,14 @@ class PlotUpdater:
         self.heatmap_data[heatmap_update_idx, :] = freq_data
 
         if self.update_counter % self.update_interval == 0:
-            self.fig.canvas.restore_region(self.background)
-            
-            self.spec_plot.set_xdata(freq_data)
-            self.ax_spec.draw_artist(self.spec_plot)
-
-            # self.heatmap_plot.set_array(np.roll(self.heatmap_data, heatmap_update_idx, axis=0).T)
-            self.heatmap_plot.set_array(self.heatmap_data.T)
-            self.ax_heatmap.draw_artist(self.heatmap_plot)
-            
-            self.fig.canvas.blit(self.fig.bbox)
-            self.fig.canvas.flush_events()
+            self.spec_curve.setData(freq_data, self.init_y_data)
+            self.heatmap_item.setImage(self.heatmap_data, autoLevels=False)
+            QtWidgets.QApplication.processEvents()
 
 
 if __name__ == "__main__":
+    app = QtWidgets.QApplication([])
+
     device_index = select_audio_device()
     chunk_size = 256
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
@@ -217,13 +211,21 @@ if __name__ == "__main__":
 
     plot_update_rate = 10
     update_interval = sampler.rate // chunk_size // plot_update_rate
-    plot_updater = PlotUpdater(
-        init_x_data=np.arange(freq_points) * delta_hertz,
+    # plot_updater = PlotUpdater(
+    #     init_x_data=np.arange(freq_points) * delta_hertz,
+    #     freq_points=freq_points,
+    #     delta_hertz=delta_hertz,
+    #     update_interval=update_interval,
+    #     heatmap_size=sampler.rate // chunk_size * 3,
+    # )
+    data_plotter = DataPlotter(
+        init_y_data=np.arange(freq_points) * delta_hertz,
         freq_points=freq_points,
         delta_hertz=delta_hertz,
         update_interval=update_interval,
         heatmap_size=sampler.rate // chunk_size * 3,
     )
+    data_plotter.show()
 
     stream = sampler.stream
     print(
@@ -249,7 +251,9 @@ if __name__ == "__main__":
             freq_data = fft_processor.process(audio_data)
             print(max(freq_data))
 
-            plot_updater.update_plot(freq_data)
+            # plot_updater.update_plot(freq_data)
+            data_plotter.update_plot(freq_data)
+            app.processEvents()
 
             max_amplitude = np.max(np.abs(audio_data))
             peak_frequency = np.argmax(freq_data) * delta_hertz
