@@ -175,14 +175,14 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.heatmap_plot.setLabel("left", "Frequency (Hz)")
         self.heatmap_plot.setLabel("bottom", "Time")
         self.heatmap_plot.setYRange(0, freq_points)
-        self.heatmap_plot.setXRange(0, heatmap_size)
+        self.heatmap_plot.setXRange(-heatmap_size, 0)
         self.heatmap_plot.showGrid(x=True, y=True)
         self.heatmap_plot.disableAutoRange()
         self.heatmap_item = pg.ImageItem(
             self.heatmap_data,
             autoLevels=False,
             levels=(0, max_amp),
-            rect=pg.QtCore.QRectF(0, 0, heatmap_size, freq_points),
+            rect=pg.QtCore.QRectF(-heatmap_size, 0, heatmap_size, freq_points),
         )
         self.heatmap_plot.addItem(self.heatmap_item)
         self.heatmap_plot.setClipToView(True)
@@ -244,7 +244,8 @@ class DataPlotter(pg.GraphicsLayoutWidget):
 
         if self.update_counter % self.update_interval == 0:
             self.spec_curve.setData(freq_data, self.y_pos_data)
-            self.heatmap_item.setImage(self.heatmap_data, autoLevels=False)
+            heatmap_data_rotate = np.roll(self.heatmap_data, -heatmap_update_idx, axis=0)
+            self.heatmap_item.setImage(heatmap_data_rotate, autoLevels=False)
             
             self.info_text.setText(f"<div style='white-space: pre; font-family: \"Courier New\", Courier, monospace;'>{info_text}</div>")
             
@@ -276,7 +277,8 @@ def fft_worker_func(sampler, fft_processor, result_queue, stop_event):
 
         sample_freq = rate_monitor.add_sample(time.time_ns())
 
-        result_queue.put((freq_data, sample_freq))
+        if result_queue.qsize() < 1000:
+            result_queue.put((freq_data, sample_freq))
 
 
 if __name__ == "__main__":
