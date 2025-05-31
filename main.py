@@ -105,6 +105,7 @@ class LowFreqFFT:
         q_log = 1j * self.delta_arg + smoothing_log
         self.qin = np.exp(q_log * np.arange(m) * n)
         self.qi2 = np.flip(np.exp(np.arange(n) ** 2 * (-q_log / 2)))
+        self.qj2 = np.abs(np.exp(np.arange(m) ** 2 * (-q_log / 2)))
         self.qij2 = np.exp(np.arange(n + m - 1) ** 2 * (q_log / 2))
         self.c_ema = np.zeros(freq_points, dtype=np.complex128)
     
@@ -113,7 +114,7 @@ class LowFreqFFT:
         a = a.astype(np.complex128)
         
         aqi2 = a * self.qi2
-        c = convolve(aqi2, self.qij2, mode="valid")
+        c = convolve(aqi2, self.qij2, mode="valid") * self.qj2
         self.c_ema = self.c_ema * self.qin + c
     
         X = np.real(self.c_ema)
@@ -135,7 +136,7 @@ class LowFreqFFT:
 
 if __name__ == "__main__":
     device_index = select_audio_device()
-    chunk_size = 128
+    chunk_size = 256
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
     
     delta_hertz = 1
