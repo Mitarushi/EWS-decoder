@@ -129,19 +129,17 @@ class LowFreqFFT:
 
 
 class DataPlotter(pg.GraphicsLayoutWidget):
-    def __init__(
-        self, freq_points, delta_hertz, update_interval, heatmap_size
-    ):
+    def __init__(self, freq_points, delta_hertz, update_interval, heatmap_size):
         super().__init__()
 
         low_cutoff = 50
         max_amp = 1000.0
         heatmap_width = 3
         spectrogram_width = 1
-        
+
         self.heatmap_size = heatmap_size
         self.heatmap_data = np.zeros((heatmap_size, freq_points))
-        
+
         # 対数表示のため、グラフ内のyラベルは実際の値と異なる
         self.y_pos_data = np.arange(freq_points)
         self.y_input_data = np.arange(freq_points) * delta_hertz
@@ -153,7 +151,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         pos_max_log = np.log(freq_points * delta_hertz)
         for i in range(0, 7):
             for digits in range(1, 10):
-                freq = 10 ** i * digits
+                freq = 10**i * digits
                 freq_pos = round(
                     (np.log(freq) - pos_0_log) / (pos_max_log - pos_0_log) * freq_points
                 )
@@ -183,9 +181,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             self.heatmap_data,
             autoLevels=False,
             levels=(0, max_amp),
-            rect=pg.QtCore.QRectF(
-                0, 0, heatmap_size, freq_points
-            ),
+            rect=pg.QtCore.QRectF(0, 0, heatmap_size, freq_points),
         )
         self.heatmap_plot.addItem(self.heatmap_item)
         self.heatmap_plot.setClipToView(True)
@@ -202,7 +198,10 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.spec_plot.showGrid(x=True, y=True)
         self.spec_plot.disableAutoRange()
         self.spec_curve = self.spec_plot.plot(
-            np.zeros_like(self.y_pos_data), self.y_pos_data, pen="w", name="Spectrogram Curve"
+            np.zeros_like(self.y_pos_data),
+            self.y_pos_data,
+            pen="w",
+            name="Spectrogram Curve",
         )
         self.spec_plot.setTitle("Spectrogram")
         self.spec_plot.setClipToView(True)
@@ -210,10 +209,10 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         ay.setTicks([y_ticks])
 
         self.spec_plot.setYLink(self.heatmap_plot)
-        
+
         for i in range(heatmap_width + spectrogram_width):
             self.ci.layout.setColumnStretchFactor(i, 1)
-    
+
     def interpolate_freq_data(self, freq_data):
         return np.interp(
             self.y_real_data,
@@ -225,7 +224,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
 
     def update_plot(self, freq_data):
         freq_data = self.interpolate_freq_data(freq_data)
-    
+
         self.update_counter += 1
 
         heatmap_update_idx = self.update_counter % self.heatmap_size
