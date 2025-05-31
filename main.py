@@ -147,7 +147,8 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(figsize=(10, 6))
     x_data = np.arange(freq_points) * delta_hertz
     data_plot, = plt.plot(x_data, np.zeros_like(x_data), lw=2)
-    plt.xlim(0, freq_points * delta_hertz)
+    plt.xlim(50, freq_points * delta_hertz)
+    plt.xscale("log")
     plt.ylim(0, 1000.0)
     plt.show(block=False)
     fig.canvas.draw()
