@@ -307,13 +307,14 @@ if __name__ == "__main__":
         f"Sampling from device: {sampler.device_info['name']} at {sampler.rate}Hz with {sampler.channels} channels."
     )
 
+    freq_resol_ratio = 10
     fft_processor = LowFreqFFT(
         freq_points=freq_points,
         delta_arg=delta_arg,
         chunk_size=chunk_size,
         smoothing_log=np.log(0.1)
         * delta_hertz
-        / (sampler.rate * 30),  # 周波数 / 30 ぐらいの分解能
+        / (sampler.rate * freq_resol_ratio),
     )
 
     result_queue = mp.Queue()
