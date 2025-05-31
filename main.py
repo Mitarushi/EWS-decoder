@@ -19,7 +19,7 @@ def select_audio_device():
 
 
 class AudioSampler:
-    def __init__(self, device_index, chunk_size=1500, sample_format=pyaudio.paInt16):
+    def __init__(self, device_index, chunk_size, sample_format=pyaudio.paInt16):
         self.audio = pyaudio.PyAudio()
 
         self.device_index = device_index
@@ -79,7 +79,8 @@ class SampleCounter:
 
 if __name__ == "__main__":
     device_index = select_audio_device()
-    sampler = AudioSampler(device_index)
+    chunk_size = 1500
+    sampler = AudioSampler(device_index, chunk_size=chunk_size)
 
     stream = sampler.stream
     print(
