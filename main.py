@@ -130,30 +130,52 @@ class LowFreqFFT:
 
 class DataPlotter(pg.GraphicsLayoutWidget):
     def __init__(
-        self, init_y_data, freq_points, delta_hertz, update_interval, heatmap_size
+        self, freq_points, delta_hertz, update_interval, heatmap_size
     ):
         super().__init__()
 
-        low_cutoff = 1000
+        low_cutoff = 50
+        max_amp = 1000.0
         heatmap_width = 3
         spectrogram_width = 1
-
-        self.init_y_data = init_y_data
+        
         self.heatmap_size = heatmap_size
         self.heatmap_data = np.zeros((heatmap_size, freq_points))
+        
+        # 対数表示のため、グラフ内のyラベルは実際の値と異なる
+        self.y_pos_data = np.arange(freq_points)
+        self.y_input_data = np.arange(freq_points) * delta_hertz
+        self.y_real_data = np.geomspace(
+            low_cutoff, freq_points * delta_hertz, num=freq_points
+        )
+        y_ticks = []
+        pos_0_log = np.log(low_cutoff)
+        pos_max_log = np.log(freq_points * delta_hertz)
+        for i in range(0, 7):
+            for digits in range(1, 10):
+                freq = 10 ** i * digits
+                freq_pos = round(
+                    (np.log(freq) - pos_0_log) / (pos_max_log - pos_0_log) * freq_points
+                )
+                if 0 <= freq_pos < freq_points:
+                    if digits == 1:
+                        y_ticks.append((freq_pos, f"{freq}Hz"))
+                    else:
+                        y_ticks.append((freq_pos, ""))
 
         self.update_interval = update_interval
         self.update_counter = 0
 
+        # グラフの生成
         self.setWindowTitle("FFT")
-        self.resize(1200, 600)
+        self.resize(2400, 600)
 
         self.heatmap_plot = self.addPlot(
             row=0, col=0, title="Heatmap", colspan=heatmap_width
         )
         self.heatmap_plot.setLabel("left", "Frequency (Hz)")
         self.heatmap_plot.setLabel("bottom", "Time")
-        self.heatmap_plot.setYRange(low_cutoff, freq_points * delta_hertz)
+        self.heatmap_plot.setYRange(0, freq_points)
         self.heatmap_plot.setXRange(0, heatmap_size)
         # self.heatmap_plot.setLogMode(y=True)
         self.heatmap_plot.showGrid(x=True, y=True)
@@ -161,41 +183,63 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.heatmap_item = pg.ImageItem(
             self.heatmap_data,
             autoLevels=False,
-            levels=(0, 1000.0),
+            levels=(0, max_amp),
             rect=pg.QtCore.QRectF(
-                0, low_cutoff, heatmap_size, freq_points * delta_hertz
+                0, 0, heatmap_size, freq_points
             ),
         )
         self.heatmap_plot.addItem(self.heatmap_item)
+        self.heatmap_plot.setClipToView(True)
+        ay = self.heatmap_plot.getAxis("left")
+        ay.setTicks([y_ticks])
 
         self.spec_plot = self.addPlot(
             row=0, col=heatmap_width, title="Spectrogram", colspan=spectrogram_width
         )
         self.spec_plot.setLabel("left", "Frequency (Hz)")
         self.spec_plot.setLabel("bottom", "Amplitude")
-        self.spec_plot.setYRange(low_cutoff, freq_points * delta_hertz)
-        self.spec_plot.setXRange(0, 1000.0)
+        self.spec_plot.setYRange(0, freq_points)
+        self.spec_plot.setXRange(0, max_amp)
         # self.spec_plot.setLogMode(y=True)
         self.spec_plot.showGrid(x=True, y=True)
         self.spec_plot.disableAutoRange()
         self.spec_curve = self.spec_plot.plot(
-            np.zeros_like(init_y_data), init_y_data, pen="w", name="Spectrogram Curve"
+            np.zeros_like(self.y_pos_data), self.y_pos_data, pen="w", name="Spectrogram Curve"
         )
         self.spec_plot.setTitle("Spectrogram")
+        self.spec_plot.setClipToView(True)
+        ay = self.spec_plot.getAxis("left")
+        ay.setTicks([y_ticks])
 
         # self.spec_plot.setXLink(self.heatmap_plot)
-        # self.spec_plot.setYLink(self.heatmap_plot)
+        self.spec_plot.setYLink(self.heatmap_plot)
+        
+        for i in range(heatmap_width + spectrogram_width):
+            self.ci.layout.setColumnStretchFactor(i, 1)
+    
+    def interpolate_freq_data(self, freq_data):
+        return np.interp(
+            self.y_real_data,
+            self.y_input_data,
+            freq_data,
+            left=0,
+            right=0,
+        )
 
     def update_plot(self, freq_data):
+        freq_data = self.interpolate_freq_data(freq_data)
+    
         self.update_counter += 1
 
         heatmap_update_idx = self.update_counter % self.heatmap_size
         self.heatmap_data[heatmap_update_idx, :] = freq_data
 
         if self.update_counter % self.update_interval == 0:
-            self.spec_curve.setData(freq_data, self.init_y_data)
+            self.spec_curve.setData(freq_data, self.y_pos_data)
             self.heatmap_item.setImage(self.heatmap_data, autoLevels=False)
             QtWidgets.QApplication.processEvents()
+            return True
+        return False
 
 
 if __name__ == "__main__":
@@ -211,15 +255,7 @@ if __name__ == "__main__":
 
     plot_update_rate = 10
     update_interval = sampler.rate // chunk_size // plot_update_rate
-    # plot_updater = PlotUpdater(
-    #     init_x_data=np.arange(freq_points) * delta_hertz,
-    #     freq_points=freq_points,
-    #     delta_hertz=delta_hertz,
-    #     update_interval=update_interval,
-    #     heatmap_size=sampler.rate // chunk_size * 3,
-    # )
     data_plotter = DataPlotter(
-        init_y_data=np.arange(freq_points) * delta_hertz,
         freq_points=freq_points,
         delta_hertz=delta_hertz,
         update_interval=update_interval,
@@ -252,8 +288,8 @@ if __name__ == "__main__":
             print(max(freq_data))
 
             # plot_updater.update_plot(freq_data)
-            data_plotter.update_plot(freq_data)
-            app.processEvents()
+            if data_plotter.update_plot(freq_data):
+                app.processEvents()
 
             max_amplitude = np.max(np.abs(audio_data))
             peak_frequency = np.argmax(freq_data) * delta_hertz
