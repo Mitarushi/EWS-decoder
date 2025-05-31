@@ -85,22 +85,24 @@ class LowFreqFFT:
         self.chunk_size = chunk_size
         self.smoothing_log = smoothing_log
         self.low_mask = low_mask
-        
+
         n = chunk_size
         m = freq_points
-        
+
         # https://chatgpt.com/share/683aee05-c9c0-8013-8bf2-14065fb9c15d
         s = smoothing_log
         w = self.delta_arg * np.arange(m)
         rho = np.exp(s)
-        D = 1 - 2 * rho * np.cos(2 * w) + rho ** 2
+        D = 1 - 2 * rho * np.cos(2 * w) + rho**2
         Ar = (1 - rho * np.cos(2 * w)) / D
         Ai = rho * np.sin(2 * w) / D
         Br = 1.0 / (1.0 - rho)
         self.P = Ar + Br
         self.Q = Ai
         self.S = Ar - Br
-        self.Delta = 1 / abs(self.P * self.S + self.Q ** 2) * np.arange(m) # 最後のarangeはoptional
+        self.Delta = (
+            1 / abs(self.P * self.S + self.Q**2) * np.arange(m)
+        )  # 最後のarangeはoptional
 
         q_log = 1j * self.delta_arg + smoothing_log
         self.qin = np.exp(q_log * np.arange(m) * n)
@@ -108,25 +110,28 @@ class LowFreqFFT:
         self.qj2 = np.abs(np.exp(np.arange(m) ** 2 * (-q_log / 2)))
         self.qij2 = np.exp(np.arange(n + m - 1) ** 2 * (q_log / 2))
         self.c_ema = np.zeros(freq_points, dtype=np.complex128)
-    
+
     def process(self, a):
         assert len(a) == self.chunk_size, "Input array must match chunk size."
         a = a.astype(np.complex128)
-        
+
         aqi2 = a * self.qi2
         c = convolve(aqi2, self.qij2, mode="valid") * self.qj2
         self.c_ema = self.c_ema * self.qin + c
-    
+
         X = np.real(self.c_ema)
         Y = np.imag(self.c_ema)
-        abs_freq = np.hypot(Y * self.P  - X * self.Q, X * self.S + Y * self.Q) * self.Delta
+        abs_freq = (
+            np.hypot(Y * self.P - X * self.Q, X * self.S + Y * self.Q) * self.Delta
+        )
         return abs_freq
+
 
 # def low_freq_fft(a, freq_points, delta_arg):
 #     a = a.astype(np.complex64)
 #     n = len(a)
 #     m = freq_points
-    
+
 #     qi2 = np.exp(np.arange(n) ** 2 * (-1j * delta_arg / 2))
 #     aqi2 = np.flip(a * qi2)
 #     qij = np.exp(np.arange(n + m - 1) ** 2 * (1j * delta_arg / 2))
@@ -138,15 +143,15 @@ if __name__ == "__main__":
     device_index = select_audio_device()
     chunk_size = 256
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
-    
-    delta_hertz = 1
+
+    delta_hertz = 2
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
-    
+
     # initialize plot
     fig, ax = plt.subplots(figsize=(10, 6))
     x_data = np.arange(freq_points) * delta_hertz
-    data_plot, = plt.plot(x_data, np.zeros_like(x_data), lw=2)
+    (data_plot,) = plt.plot(x_data, np.zeros_like(x_data), lw=2)
     plt.xlim(50, freq_points * delta_hertz)
     plt.xscale("log")
     plt.ylim(0, 1000.0)
@@ -160,12 +165,14 @@ if __name__ == "__main__":
     print(
         f"Sampling from device: {sampler.device_info['name']} at {sampler.rate}Hz with {sampler.channels} channels."
     )
-    
+
     fft_processor = LowFreqFFT(
         freq_points=freq_points,
         delta_arg=delta_arg,
         chunk_size=chunk_size,
-        smoothing_log=np.log(0.1) * delta_hertz / (sampler.rate * 10), # 周波数 / 10 ぐらいの分解能
+        smoothing_log=np.log(0.1)
+        * delta_hertz
+        / (sampler.rate * 10),  # 周波数 / 10 ぐらいの分解能
     )
 
     try:
@@ -178,9 +185,9 @@ if __name__ == "__main__":
 
             freq_data = fft_processor.process(audio_data)
             print(max(freq_data))
-    
+
             update_counter += 1
-            
+
             if update_counter % update_rate == 0:
                 data_plot.set_ydata(freq_data)
                 fig.canvas.restore_region(background)
