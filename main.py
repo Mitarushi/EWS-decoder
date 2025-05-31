@@ -177,7 +177,6 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.heatmap_plot.setLabel("bottom", "Time")
         self.heatmap_plot.setYRange(0, freq_points)
         self.heatmap_plot.setXRange(0, heatmap_size)
-        # self.heatmap_plot.setLogMode(y=True)
         self.heatmap_plot.showGrid(x=True, y=True)
         self.heatmap_plot.disableAutoRange()
         self.heatmap_item = pg.ImageItem(
@@ -200,7 +199,6 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.spec_plot.setLabel("bottom", "Amplitude")
         self.spec_plot.setYRange(0, freq_points)
         self.spec_plot.setXRange(0, max_amp)
-        # self.spec_plot.setLogMode(y=True)
         self.spec_plot.showGrid(x=True, y=True)
         self.spec_plot.disableAutoRange()
         self.spec_curve = self.spec_plot.plot(
@@ -211,7 +209,6 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         ay = self.spec_plot.getAxis("left")
         ay.setTicks([y_ticks])
 
-        # self.spec_plot.setXLink(self.heatmap_plot)
         self.spec_plot.setYLink(self.heatmap_plot)
         
         for i in range(heatmap_width + spectrogram_width):
