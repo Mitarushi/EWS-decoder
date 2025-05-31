@@ -79,16 +79,44 @@ class LoopRateMonitor:
         return sample_freq
 
 
-def low_freq_fft(a, freq_points, delta_arg):
-    a = a.astype(np.complex64)
-    n = len(a)
-    m = freq_points
+class LowFreqFFT:
+    def __init__(self, freq_points, delta_arg, chunk_size, smoothing_log, low_mask=10):
+        self.delta_arg = delta_arg
+        self.chunk_size = chunk_size
+        self.smoothing_log = smoothing_log
+        self.low_mask = low_mask
+        
+        self.n = chunk_size
+        self.m = freq_points
     
-    qi2 = np.exp(np.arange(n) ** 2 * (-1j * delta_arg / 2))
-    aqi2 = np.flip(a * qi2)
-    qij = np.exp(np.arange(n + m - 1) ** 2 * (1j * delta_arg / 2))
-    c = convolve(aqi2, qij, mode="valid")
-    return np.abs(c) / n
+        self.q_log = 1j * self.delta_arg + smoothing_log / self.n
+        self.qin = np.exp(
+            np.arange(self.m) * (1j * self.delta_arg * self.n) +
+            np.maximum(self.low_mask, np.arange(self.m)) * self.smoothing_log)
+        self.qi2 = np.flip(np.exp(np.arange(self.n) ** 2 * (-self.q_log / 2)))
+        self.qij2 = np.exp(np.arange(self.n + self.m - 1) ** 2 * (self.q_log / 2))
+        self.c_ema = np.zeros(freq_points, dtype=np.complex128)
+    
+    def process(self, a):
+        assert len(a) == self.chunk_size, "Input array must match chunk size."
+        a = a.astype(np.complex64)
+        
+        aqi2 = a * self.qi2
+        c = convolve(aqi2, self.qij2, mode="valid") / self.n
+        self.c_ema = self.c_ema * self.qin + c
+        return np.abs(self.c_ema)
+
+
+# def low_freq_fft(a, freq_points, delta_arg):
+#     a = a.astype(np.complex64)
+#     n = len(a)
+#     m = freq_points
+    
+#     qi2 = np.exp(np.arange(n) ** 2 * (-1j * delta_arg / 2))
+#     aqi2 = np.flip(a * qi2)
+#     qij = np.exp(np.arange(n + m - 1) ** 2 * (1j * delta_arg / 2))
+#     c = convolve(aqi2, qij, mode="valid")
+#     return np.abs(c) / n
 
 
 if __name__ == "__main__":
@@ -118,9 +146,12 @@ if __name__ == "__main__":
         f"Sampling from device: {sampler.device_info['name']} at {sampler.rate}Hz with {sampler.channels} channels."
     )
     
-    # window_function = np.hanning(chunk_size)
-    # window_function = np.ones(chunk_size, dtype=np.float32)
-    window_function = windows.kaiser(chunk_size, beta=3.0)
+    fft_processor = LowFreqFFT(
+        freq_points=freq_points,
+        delta_arg=delta_arg,
+        chunk_size=chunk_size,
+        smoothing_log=np.log(0.7) / 640,
+    )
 
     try:
         rate_monitor = LoopRateMonitor()
@@ -128,12 +159,9 @@ if __name__ == "__main__":
             data = stream.read(sampler.chunk_size)
             audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
             audio_data = audio_data.reshape(-1, sampler.channels).mean(axis=1)
-            audio_data *= window_function
 
-            freq_data = low_freq_fft(
-                audio_data, freq_points=freq_points, delta_arg=delta_arg
-            )
-            
+            freq_data = fft_processor.process(audio_data)
+    
             data_plot.set_ydata(freq_data)
             fig.canvas.restore_region(background)
             ax.draw_artist(data_plot)
