@@ -4,6 +4,7 @@ from scipy.signal import convolve, windows
 import time
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
+import multiprocessing as mp
 
 
 def select_audio_device():
@@ -237,6 +238,38 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             return True
         return False
 
+    def closeEvent(self, event):
+        self.clear()
+        QtWidgets.QApplication.instance().quit()
+        event.accept()
+
+
+def fft_worker_func(sampler, fft_processor, result_queue, stop_event):
+    rate_monitor = LoopRateMonitor()
+    while not stop_event.is_set():
+        try:
+            data = sampler.stream.read(sampler.chunk_size)
+        except Exception as e:
+            print(f"Error reading audio data: {e}")
+            break
+        if stop_event.is_set():
+            break
+
+        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        audio_data = audio_data.reshape(-1, sampler.channels).mean(axis=1)
+
+        freq_data = fft_processor.process(audio_data)
+
+        # max_amplitude = np.max(np.abs(audio_data))
+        # peak_frequency = np.argmax(freq_data) * fft_processor.delta_hertz
+        sample_freq = rate_monitor.add_sample(time.time_ns())
+        # print(
+        #     f"Max Amp: {max_amplitude:.2f}, Peak Freq: {peak_frequency:.2f}Hz, Sample Freq: {sample_freq:.2f}Hz"
+        # )
+        print(f"Sample Frequency: {sample_freq:.2f}Hz")
+
+        result_queue.put((freq_data))
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
@@ -249,7 +282,7 @@ if __name__ == "__main__":
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
 
-    plot_update_rate = 10
+    plot_update_rate = 30
     update_interval = sampler.rate // chunk_size // plot_update_rate
     data_plotter = DataPlotter(
         freq_points=freq_points,
@@ -273,30 +306,50 @@ if __name__ == "__main__":
         / (sampler.rate * 10),  # 周波数 / 10 ぐらいの分解能
     )
 
-    try:
-        rate_monitor = LoopRateMonitor()
-        while True:
-            data = stream.read(sampler.chunk_size)
-            audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-            audio_data = audio_data.reshape(-1, sampler.channels).mean(axis=1)
+    result_queue = mp.Queue()
+    stop_event = mp.Event()
+    fft_worker = QtCore.QThread()
+    fft_worker.run = lambda: fft_worker_func(
+        sampler, fft_processor, result_queue, stop_event
+    )
+    fft_worker.start()
 
-            freq_data = fft_processor.process(audio_data)
-            print(max(freq_data))
+    timer = QtCore.QTimer()
 
-            # plot_updater.update_plot(freq_data)
+    def update_plot():
+        while not result_queue.empty():
+            freq_data = result_queue.get()
+
+            max_amplitude = np.max(freq_data)
+            peak_frequency = np.argmax(freq_data) * delta_hertz
+            print(
+                f"Max Amplitude: {max_amplitude:.2f}, Peak Frequency: {peak_frequency:.2f}Hz, Queue Size: {result_queue.qsize()}"
+            )
+
             if data_plotter.update_plot(freq_data):
                 app.processEvents()
 
-            max_amplitude = np.max(np.abs(audio_data))
-            peak_frequency = np.argmax(freq_data) * delta_hertz
-            sample_freq = rate_monitor.add_sample(time.time_ns())
-            print(
-                f"Max Amp: {max_amplitude:.2f}, Peak Freq: {peak_frequency:.2f}Hz, Sample Freq: {sample_freq:.2f}Hz"
-            )
+    timer.timeout.connect(update_plot)
+    timer.start(1000 // (sampler.rate // chunk_size))
+    app.exec()
 
-    except KeyboardInterrupt:
-        print("Stopping audio sampling.")
-    finally:
-        sampler.close()
-        print("Audio sampler closed.")
-        print("Exiting program.")
+    stop_event.set()
+    timer.stop()
+
+    fft_worker.quit()
+    fft_worker.wait()
+
+    # queueの処理は、難しい
+    while True:
+        try:
+            result_queue.get(block=True, timeout=1e-3)
+        except mp.queues.Empty:
+            break
+        except ValueError:
+            break
+    result_queue.close()
+    result_queue.join_thread()
+
+    sampler.close()
+
+    exit(0)
