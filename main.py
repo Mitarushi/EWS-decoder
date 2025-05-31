@@ -127,16 +127,28 @@ class LowFreqFFT:
         return abs_freq
 
 
-# def low_freq_fft(a, freq_points, delta_arg):
-#     a = a.astype(np.complex64)
-#     n = len(a)
-#     m = freq_points
+class PlotUpdater:
+    def __init__(self, init_x_data, freq_points, delta_hertz, update_interval):
+        self.fig, self.ax = plt.subplots(figsize=(10, 6))
+        (self.data_plot,) = plt.plot(init_x_data, np.zeros_like(init_x_data), lw=2)
+        plt.xlim(50, freq_points * delta_hertz)
+        plt.xscale("log")
+        plt.ylim(0, 1000.0)
+        plt.show(block=False)
+        self.fig.canvas.draw()
+        self.background = self.fig.canvas.copy_from_bbox(self.fig.bbox)
 
-#     qi2 = np.exp(np.arange(n) ** 2 * (-1j * delta_arg / 2))
-#     aqi2 = np.flip(a * qi2)
-#     qij = np.exp(np.arange(n + m - 1) ** 2 * (1j * delta_arg / 2))
-#     c = convolve(aqi2, qij, mode="valid")
-#     return np.abs(c) / n
+        self.update_interval = update_interval
+        self.update_counter = 0
+
+    def update_plot(self, freq_data):
+        self.update_counter += 1
+        if self.update_counter % self.update_interval == 0:
+            self.data_plot.set_ydata(freq_data)
+            self.fig.canvas.restore_region(self.background)
+            self.ax.draw_artist(self.data_plot)
+            self.fig.canvas.blit(self.fig.bbox)
+            self.fig.canvas.flush_events()
 
 
 if __name__ == "__main__":
@@ -148,18 +160,14 @@ if __name__ == "__main__":
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
 
-    # initialize plot
-    fig, ax = plt.subplots(figsize=(10, 6))
-    x_data = np.arange(freq_points) * delta_hertz
-    (data_plot,) = plt.plot(x_data, np.zeros_like(x_data), lw=2)
-    plt.xlim(50, freq_points * delta_hertz)
-    plt.xscale("log")
-    plt.ylim(0, 1000.0)
-    plt.show(block=False)
-    fig.canvas.draw()
-    background = fig.canvas.copy_from_bbox(fig.bbox)
-    update_rate = 15
-    update_interval = sampler.rate // chunk_size // update_rate
+    plot_update_rate = 30
+    update_interval = sampler.rate // chunk_size // plot_update_rate
+    plot_updater = PlotUpdater(
+        init_x_data=np.arange(freq_points) * delta_hertz,
+        freq_points=freq_points,
+        delta_hertz=delta_hertz,
+        update_interval=update_interval,
+    )
 
     stream = sampler.stream
     print(
@@ -177,7 +185,6 @@ if __name__ == "__main__":
 
     try:
         rate_monitor = LoopRateMonitor()
-        update_counter = 0
         while True:
             data = stream.read(sampler.chunk_size)
             audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
@@ -186,14 +193,7 @@ if __name__ == "__main__":
             freq_data = fft_processor.process(audio_data)
             print(max(freq_data))
 
-            update_counter += 1
-
-            if update_counter % update_rate == 0:
-                data_plot.set_ydata(freq_data)
-                fig.canvas.restore_region(background)
-                ax.draw_artist(data_plot)
-                fig.canvas.blit(fig.bbox)
-                fig.canvas.flush_events()
+            plot_updater.update_plot(freq_data)
 
             max_amplitude = np.max(np.abs(audio_data))
             peak_frequency = np.argmax(freq_data) * delta_hertz
