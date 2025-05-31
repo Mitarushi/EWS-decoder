@@ -8,6 +8,7 @@ dependencies = [
     "matplotlib>=3.10.3",
     "numpy>=2.2.6",
     "pyaudio>=0.2.14",
+    "pyqtgraph>=0.13.7",
     "scipy>=1.15.3",
     "tqdm>=4.67.1",
     "wave>=0.0.2",

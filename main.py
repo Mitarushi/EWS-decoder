@@ -1,5 +1,7 @@
 import pyaudio
 import numpy as np
+from scipy.signal import convolve, windows
+import matplotlib.pyplot as plt
 import time
 
 
@@ -57,7 +59,7 @@ class AudioSampler:
         self.close()
 
 
-class SampleCounter:
+class LoopRateMonitor:
     def __init__(self, average_window=50):
         self.average_window = average_window
         self.samples = []
@@ -77,27 +79,72 @@ class SampleCounter:
         return sample_freq
 
 
+def low_freq_fft(a, freq_points, delta_arg):
+    a = a.astype(np.complex64)
+    n = len(a)
+    m = freq_points
+    
+    qi2 = np.exp(np.arange(n) ** 2 * (-1j * delta_arg / 2))
+    aqi2 = np.flip(a * qi2)
+    qij = np.exp(np.arange(n + m - 1) ** 2 * (1j * delta_arg / 2))
+    c = convolve(aqi2, qij, mode="valid")
+    return np.abs(c) / n
+
+
 if __name__ == "__main__":
     device_index = select_audio_device()
     chunk_size = 1500
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
+    
+    delta_hertz = 0.25
+    delta_arg = 2 * np.pi * delta_hertz / sampler.rate
+    freq_points = 10000
+    
+    # initialize plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    x_data = np.arange(freq_points) * delta_hertz
+    data_plot, = plt.plot(x_data, np.zeros_like(x_data), lw=2)
+    
+    plt.xlim(0, freq_points * delta_hertz)
+    plt.ylim(0, 1000.0)
+    
+    plt.show(block=False)
+    fig.canvas.draw()
+    background = fig.canvas.copy_from_bbox(fig.bbox)
 
     stream = sampler.stream
     print(
         f"Sampling from device: {sampler.device_info['name']} at {sampler.rate}Hz with {sampler.channels} channels."
     )
+    
+    # window_function = np.hanning(chunk_size)
+    # window_function = np.ones(chunk_size, dtype=np.float32)
+    window_function = windows.kaiser(chunk_size, beta=3.0)
 
     try:
-        sample_counter = SampleCounter()
+        rate_monitor = LoopRateMonitor()
         while True:
             data = stream.read(sampler.chunk_size)
             audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
             audio_data = audio_data.reshape(-1, sampler.channels).mean(axis=1)
-            max_amplitude = np.max(np.abs(audio_data))
+            audio_data *= window_function
 
-            sample_freq = sample_counter.add_sample(time.time_ns())
+            freq_data = low_freq_fft(
+                audio_data, freq_points=freq_points, delta_arg=delta_arg
+            )
+            
+            data_plot.set_ydata(freq_data)
+            fig.canvas.restore_region(background)
+            ax.draw_artist(data_plot)
+            fig.canvas.blit(fig.bbox)
+            fig.canvas.flush_events()
+
+            max_amplitude = np.max(np.abs(audio_data))
+            peak_frequency = np.argmax(freq_data) * delta_hertz
+            sample_freq = rate_monitor.add_sample(time.time_ns())
             print(
-                f"Max Amplitude: {max_amplitude:.2f}, Sample Frequency: {sample_freq:.2f}Hz"
+                f"Max Amp: {max_amplitude:.2f}, Peak Freq: {peak_frequency:.2f}Hz, Sample Freq: {sample_freq:.2f}Hz"
             )
 
     except KeyboardInterrupt:
