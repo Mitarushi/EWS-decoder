@@ -170,7 +170,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.resize(2400, 1200)
 
         self.heatmap_plot = self.addPlot(
-            row=0, col=0, title="Heatmap", colspan=heatmap_width
+            row=0, col=0, title="Spectrogram", colspan=heatmap_width
         )
         self.heatmap_plot.setLabel("left", "Frequency (Hz)")
         self.heatmap_plot.setLabel("bottom", "Sample")
@@ -191,7 +191,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         ay.setTicks([y_ticks])
 
         self.spec_plot = self.addPlot(
-            row=0, col=heatmap_width, title="Spectrogram", colspan=spectrogram_width
+            row=0, col=heatmap_width, colspan=spectrogram_width
         )
         self.spec_plot.setLabel("left", "Frequency (Hz)")
         self.spec_plot.setLabel("bottom", "Amplitude")
@@ -205,7 +205,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             pen="w",
             name="Spectrogram Curve",
         )
-        self.spec_plot.setTitle("Spectrogram")
+        self.spec_plot.setTitle("Frequency Spectrum")
         self.spec_plot.setClipToView(True)
         ay = self.spec_plot.getAxis("left")
         ay.setTicks([y_ticks])
