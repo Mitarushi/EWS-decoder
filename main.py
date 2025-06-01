@@ -10,6 +10,8 @@ from ews_decoder import FSK
 
 
 def select_audio_device():
+    return 27
+    
     audio = pyaudio.PyAudio()
     device_count = audio.get_device_count()
     print("Available audio devices:")
@@ -295,7 +297,7 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
     device_index = select_audio_device()
-    chunk_size = 125
+    chunk_size = 200
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
 
     delta_hertz = 2
@@ -318,7 +320,7 @@ if __name__ == "__main__":
         f"Sampling from device: {sampler.device_info['name']} at {sampler.rate}Hz with {sampler.channels} channels."
     )
 
-    freq_resol_ratio = 10
+    freq_resol_ratio = 15
     fft_processor = LowFreqFFT(
         freq_points=freq_points,
         delta_arg=delta_arg,
@@ -335,14 +337,15 @@ if __name__ == "__main__":
     fft_worker.start()
 
     fsk_decoder = FSK(
+        freq_points=freq_points,
         signal_freq_list=[640, 1024],
         delta_hertz=delta_hertz,
         sample_per_bit=sampler.rate // chunk_size // 64,
         accept_freq_diff=5,
-        # peak_width_ratio=0.1,
-        mode_width_ratio=0.4,
-        # noise_threshold=None,
-        signal_noise_threshold=3,
+        peak_width_ratio=0.2,
+        signal_noise_threshold=2.5,
+        ignored_interval=0.2,
+        bit_length_bias=0.3,
     )
 
     timer = QtCore.QTimer()

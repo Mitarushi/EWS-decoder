@@ -191,9 +191,9 @@ class EWSDecoder:
         while True:
             # 前置符号
             pre_code = yield from cls.receive_n_bits(last_output, 4)
-            if pre_code == cls.START_CODE:
+            if pre_code == cls.PRE_START_CODE:
                 last_output = "第1/2種開始信号"
-            elif pre_code == cls.END_CODE:
+            elif pre_code == cls.PRE_END_CODE:
                 last_output = "終了信号"
             else:
                 raise ValueError(f"Unexpected pre_code: {pre_code}")
@@ -303,27 +303,71 @@ class EWSDecoder:
 class FSK:
     def __init__(
         self,
+        freq_points,
         signal_freq_list,
         delta_hertz,
         sample_per_bit,
         accept_freq_diff,
-        # peak_width_ratio,
-        mode_width_ratio,
-        # noise_threshold,
+        peak_width_ratio,
         signal_noise_threshold,
+        ignored_interval,
+        bit_length_bias,
     ):
+        self.freq_points = freq_points
         self.freq_list = signal_freq_list
         self.delta_hertz = delta_hertz
         self.sample_per_bit = sample_per_bit
 
         self.accept_freq_diff = accept_freq_diff
-        # self.peak_width_ratio = peak_width_ratio
-        self.mode_width_ratio = mode_width_ratio
-        # self.noise_threshold = noise_threshold
+        self.peak_width_ratio = peak_width_ratio
         self.signal_noise_threshold = signal_noise_threshold
+        ignored_interval = int(round(ignored_interval * self.sample_per_bit))
+        self.ignored_interval = ignored_interval
+        self.bit_length_bias = bit_length_bias
 
-        self.last_signal = -1
-        self.signal_duration = 0
+        self.signal_start = [-ignored_interval - 100] * len(self.freq_list)
+        self.signal_finish = [-ignored_interval - 100] * len(self.freq_list)
+
+        self.update_count = 0
+
+        self.peak_mask = self.get_peak_mask()
+        
+        self.total = 0
+        self.decoder = EWSDecoder.decode()
+        self.decoder.__next__()
+        
+        self.lock_time = None
+        
+        self.file = open("signal_data.txt", "w", encoding="utf-8")
+
+    def get_peak_mask(self):
+        peak_mask = np.ones(self.freq_points, dtype=bool)
+        for freq in self.freq_list:
+            # 検出したいピークの裾野は無視する
+            min_freq = max(0, self.freq_to_point(freq * (1 - self.peak_width_ratio)))
+            max_freq = min(
+                self.freq_points - 1,
+                self.freq_to_point(freq * (1 + self.peak_width_ratio)),
+            )
+            peak_mask[min_freq : max_freq + 1] = False
+
+            narrow_min_freq = max(0, self.freq_to_point(freq - self.accept_freq_diff))
+            narrow_max_freq = min(
+                self.freq_points - 1, self.freq_to_point(freq + self.accept_freq_diff)
+            )
+            peak_mask[narrow_min_freq : narrow_max_freq + 1] = True
+        return peak_mask
+
+    def get_peak_top_k(self, freq_data, k=1):
+        is_peak = (
+            (freq_data > np.roll(freq_data, 1))
+            & (freq_data >= np.roll(freq_data, -1))
+            & self.peak_mask
+        )
+        peak_indices = np.where(is_peak)[0]
+        peak_values = freq_data[peak_indices]
+        top_k_indices = np.argsort(peak_values)[-k:][::-1]
+        return peak_indices[top_k_indices]
 
     def freq_to_point(self, freq):
         return int(round(freq / self.delta_hertz))
@@ -331,49 +375,81 @@ class FSK:
     def point_to_freq(self, point):
         return point * self.delta_hertz
 
-    def get_peak_freq(self, freq_data):
-        return self.point_to_freq(np.argmax(freq_data))
-
-    def is_single_mode(self, freq_data, peak_freq):
-        # peak_width = peak_freq * self.peak_width_ratio
-        mode_width = peak_freq * self.mode_width_ratio
-
-        # peak_upper = min(self.freq_to_point(peak_freq + peak_width), len(freq_data) - 1)
-        # peak_lower = max(self.freq_to_point(peak_freq - peak_width), 0)
-        mode_upper = min(self.freq_to_point(peak_freq + mode_width), len(freq_data) - 1)
-        mode_lower = max(self.freq_to_point(peak_freq - mode_width), 0)
-
-        # peak_max = np.max(freq_data[peak_lower:peak_upper])
-        peak_max = np.max(freq_data[mode_lower:mode_upper])
-
-        non_mode_max = max(
-            np.max(freq_data[0:mode_lower]), np.max(freq_data[mode_upper:])
-        )
-
-        return peak_max > self.signal_noise_threshold * non_mode_max
-
     def find_signal(self, freq_data):
-        peak_freq = self.get_peak_freq(freq_data)
+        k = len(self.freq_list) + 1
+        peak_indices = self.get_peak_top_k(freq_data, k)
+        peak_amplitudes = freq_data[peak_indices]
+        peak_freqs = self.point_to_freq(peak_indices)
 
-        signal_idx = None
-        for idx, freq in enumerate(self.freq_list):
-            if abs(peak_freq - freq) <= self.accept_freq_diff:
-                signal_idx = idx
-                break
+        detected_signals = []
+        detected_signal_amplitudes = []
+        non_signal_peak = None
+        for peak_freq, peak_amplitude in zip(peak_freqs, peak_amplitudes):
+            signal_idx = -1
+            for idx, signal_freq in enumerate(self.freq_list):
+                if abs(peak_freq - signal_freq) <= self.accept_freq_diff:
+                    signal_idx = idx
+                    break
+            if signal_idx == -1:
+                if non_signal_peak is None:
+                    non_signal_peak = peak_amplitude
+            elif signal_idx not in detected_signals:
+                detected_signals.append(signal_idx)
+                detected_signal_amplitudes.append(peak_amplitude)
 
-        if signal_idx is not None and self.is_single_mode(freq_data, peak_freq):
-            return signal_idx
-        return -1
+        assert non_signal_peak is not None
+
+        threshold = non_signal_peak * self.signal_noise_threshold
+        filtered_signals = [
+            signal_idx
+            for signal_idx, amplitude in zip(
+                detected_signals, detected_signal_amplitudes
+            )
+            if amplitude >= threshold
+        ]
+        # if (
+        #     self.update_count - max(self.signal_finish) < 50
+        #     and self.update_count % 5 == 0
+        # ):
+        #     print(filtered_signals, peak_amplitudes, peak_freqs, flush=False)
+        return filtered_signals
 
     def update(self, freq_data):
-        signal_idx = self.find_signal(freq_data)
+        self.update_count += 1
 
-        if signal_idx != self.last_signal:
-            if self.last_signal != -1:
-                print(
-                    f"Signal Idx: {self.last_signal}, Duration: {self.signal_duration}, Bits: {self.signal_duration / self.sample_per_bit}"
-                )
-            self.last_signal = signal_idx
-            self.signal_duration = 1
-        else:
-            self.signal_duration += 1
+        signals = self.find_signal(freq_data)
+        self.file.write(
+            " ".join(map(str, [f"{self.update_count/self.sample_per_bit:.2f}"] + signals)) + "\n"
+        )
+        self.file.flush()
+            
+        
+        # if self.lock_time is not None and (self.update_count - self.lock_time) % self.sample_per_bit == 0:
+        #     print(self.update_count / self.sample_per_bit, signals)
+
+        for idx, _ in enumerate(self.freq_list):
+            interval = self.update_count - self.signal_finish[idx]
+            if idx in signals:
+                self.signal_finish[idx] = self.update_count
+                if interval > self.ignored_interval:
+                    self.signal_start[idx] = self.update_count
+            elif interval == self.ignored_interval:
+                duration = self.signal_finish[idx] - self.signal_start[idx]
+                n_bits = int(duration / self.sample_per_bit + self.bit_length_bias)
+                if n_bits > 0:
+                    if self.lock_time is None:
+                        self.lock_time = self.signal_start[idx] + 5
+                    self.total += n_bits
+                    print(self.signal_start[idx] / self.sample_per_bit, str(idx) * n_bits, self.total)
+                    # for _ in range(n_bits):
+                    #     try:
+                    #         res = self.decoder.send(str(idx))
+                    #         if res is not None:
+                    #             print(res)
+                    #     except StopIteration:
+                    #         self.decoder = EWSDecoder.decode()
+                    #         self.decoder.__next__()
+                # print(
+                #     f"Time {self.update_count / self.sample_per_bit}, "
+                #     + f"Signal {idx} duration: {duration}, bits: {duration / self.sample_per_bit}"
+                # )
