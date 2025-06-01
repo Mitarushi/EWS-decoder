@@ -62,7 +62,7 @@ class AudioSampler:
 
 
 class LoopRateMonitor:
-    def __init__(self, average_window=50):
+    def __init__(self, average_window=1000):
         self.average_window = average_window
         self.samples = []
         self.last_sample_time = time.time_ns()
@@ -173,7 +173,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             row=0, col=0, title="Heatmap", colspan=heatmap_width
         )
         self.heatmap_plot.setLabel("left", "Frequency (Hz)")
-        self.heatmap_plot.setLabel("bottom", "Time")
+        self.heatmap_plot.setLabel("bottom", "Sample")
         self.heatmap_plot.setYRange(0, freq_points)
         self.heatmap_plot.setXRange(-heatmap_size, 0)
         self.heatmap_plot.showGrid(x=True, y=True)
@@ -248,7 +248,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         if self.update_counter % self.update_interval == 0:
             self.spec_curve.setData(freq_data, self.y_pos_data)
             heatmap_data_rotate = np.roll(
-                self.heatmap_data, -heatmap_update_idx, axis=0
+                self.heatmap_data, -heatmap_update_idx - 1, axis=0
             )
             self.heatmap_item.setImage(heatmap_data_rotate, autoLevels=False)
 
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
     device_index = select_audio_device()
-    chunk_size = 256
+    chunk_size = 250
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
 
     delta_hertz = 2
