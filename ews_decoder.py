@@ -1,5 +1,5 @@
 import datetime
-from enum import Enum
+import numpy as np
 
 
 class EWSDecoder:
@@ -168,10 +168,12 @@ class EWSDecoder:
         "11001",
         "00101",
     ]
-    YEAR_CODES = {
-        EWSDecoder.MOD10_YEAR_CODES[EWSDecoder.seireki_to_showa(year) % 10]: f"{year}年"
-        for year in range(LATEST_YEAR, LATEST_YEAR - 10, -1)
-    }
+    YEAR_CODES = (
+        lambda MOD10_YEAR_CODES, seireki_to_showa, LATEST_YEAR: {
+            MOD10_YEAR_CODES[seireki_to_showa(year) % 10]: f"{year}年"
+            for year in range(LATEST_YEAR, LATEST_YEAR - 10, -1)
+        }
+    )(MOD10_YEAR_CODES, seireki_to_showa, LATEST_YEAR)
 
     @staticmethod
     def receive_n_bits(first_yield, n):
@@ -296,3 +298,82 @@ class EWSDecoder:
                     f"Unexpected year_time_code_tail: {year_time_code_tail}"
                 )
             last_output = ""
+
+
+class FSK:
+    def __init__(
+        self,
+        signal_freq_list,
+        delta_hertz,
+        sample_per_bit,
+        accept_freq_diff,
+        # peak_width_ratio,
+        mode_width_ratio,
+        # noise_threshold,
+        signal_noise_threshold,
+    ):
+        self.freq_list = signal_freq_list
+        self.delta_hertz = delta_hertz
+        self.sample_per_bit = sample_per_bit
+
+        self.accept_freq_diff = accept_freq_diff
+        # self.peak_width_ratio = peak_width_ratio
+        self.mode_width_ratio = mode_width_ratio
+        # self.noise_threshold = noise_threshold
+        self.signal_noise_threshold = signal_noise_threshold
+
+        self.last_signal = -1
+        self.signal_duration = 0
+
+    def freq_to_point(self, freq):
+        return int(round(freq / self.delta_hertz))
+
+    def point_to_freq(self, point):
+        return point * self.delta_hertz
+
+    def get_peak_freq(self, freq_data):
+        return self.point_to_freq(np.argmax(freq_data))
+
+    def is_single_mode(self, freq_data, peak_freq):
+        # peak_width = peak_freq * self.peak_width_ratio
+        mode_width = peak_freq * self.mode_width_ratio
+
+        # peak_upper = min(self.freq_to_point(peak_freq + peak_width), len(freq_data) - 1)
+        # peak_lower = max(self.freq_to_point(peak_freq - peak_width), 0)
+        mode_upper = min(self.freq_to_point(peak_freq + mode_width), len(freq_data) - 1)
+        mode_lower = max(self.freq_to_point(peak_freq - mode_width), 0)
+
+        # peak_max = np.max(freq_data[peak_lower:peak_upper])
+        peak_max = np.max(freq_data[mode_lower:mode_upper])
+
+        non_mode_max = max(
+            np.max(freq_data[0:mode_lower]), np.max(freq_data[mode_upper:])
+        )
+
+        return peak_max > self.signal_noise_threshold * non_mode_max
+
+    def find_signal(self, freq_data):
+        peak_freq = self.get_peak_freq(freq_data)
+
+        signal_idx = None
+        for idx, freq in enumerate(self.freq_list):
+            if abs(peak_freq - freq) <= self.accept_freq_diff:
+                signal_idx = idx
+                break
+
+        if signal_idx is not None and self.is_single_mode(freq_data, peak_freq):
+            return signal_idx
+        return -1
+
+    def update(self, freq_data):
+        signal_idx = self.find_signal(freq_data)
+
+        if signal_idx != self.last_signal:
+            if self.last_signal != -1:
+                print(
+                    f"Signal Idx: {self.last_signal}, Duration: {self.signal_duration}, Bits: {self.signal_duration / self.sample_per_bit}"
+                )
+            self.last_signal = signal_idx
+            self.signal_duration = 1
+        else:
+            self.signal_duration += 1

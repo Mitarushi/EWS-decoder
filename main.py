@@ -6,6 +6,8 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets, QtGui
 import multiprocessing as mp
 
+from ews_decoder import FSK
+
 
 def select_audio_device():
     audio = pyaudio.PyAudio()
@@ -293,14 +295,14 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
     device_index = select_audio_device()
-    chunk_size = 250
+    chunk_size = 125
     sampler = AudioSampler(device_index, chunk_size=chunk_size)
 
     delta_hertz = 2
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
 
-    plot_update_rate = 30
+    plot_update_rate = 10
     update_interval = sampler.rate // chunk_size // plot_update_rate
     data_plotter = DataPlotter(
         freq_points=freq_points,
@@ -332,6 +334,17 @@ if __name__ == "__main__":
     )
     fft_worker.start()
 
+    fsk_decoder = FSK(
+        signal_freq_list=[640, 1024],
+        delta_hertz=delta_hertz,
+        sample_per_bit=sampler.rate // chunk_size // 64,
+        accept_freq_diff=5,
+        # peak_width_ratio=0.1,
+        mode_width_ratio=0.4,
+        # noise_threshold=None,
+        signal_noise_threshold=3,
+    )
+
     timer = QtCore.QTimer()
 
     def update_plot():
@@ -344,6 +357,8 @@ if __name__ == "__main__":
                 f"Max: {max_amplitude:>8.1f}, Peak: {peak_frequency:>8.1f}Hz, "
                 f"Sample Rate: {sample_freq:>8.1f}Hz, Queue Size: {result_queue.qsize():>3d}"
             )
+
+            fsk_decoder.update(freq_data)
 
             if data_plotter.update_plot(freq_data, info_text):
                 app.processEvents()
