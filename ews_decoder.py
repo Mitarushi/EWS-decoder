@@ -250,7 +250,7 @@ class EWSDecoder:
 
             month_date_code_sep = yield from cls.receive_n_bits(last_output, 1)
             if month_date_code_sep == "0":
-                last_output = "本日"
+                last_output = "今日"
             elif month_date_code_sep == "1":
                 last_output = "その他"
 
@@ -281,7 +281,7 @@ class EWSDecoder:
 
             year_time_code_sep = yield from cls.receive_n_bits(last_output, 1)
             if year_time_code_sep == "0":
-                last_output = "本年"
+                last_output = "今年"
             elif year_time_code_sep == "1":
                 last_output = "その他"
 
