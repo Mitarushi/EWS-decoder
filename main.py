@@ -184,6 +184,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             levels=(0, max_amp),
             rect=pg.QtCore.QRectF(-heatmap_size, 0, heatmap_size, freq_points),
         )
+        self.heatmap_item.setColorMap(pg.colormap.get("CET-L16"))
         self.heatmap_plot.addItem(self.heatmap_item)
         self.heatmap_plot.setClipToView(True)
         ay = self.heatmap_plot.getAxis("left")
