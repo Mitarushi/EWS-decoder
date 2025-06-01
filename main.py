@@ -211,7 +211,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         ay.setTicks([y_ticks])
 
         self.spec_plot.setYLink(self.heatmap_plot)
-        
+
         # 一番下にtextを表示
         self.nextRow()
         self.info_text = pg.LabelItem(
@@ -221,7 +221,9 @@ class DataPlotter(pg.GraphicsLayoutWidget):
             color="w",
             background="k",
         )
-        self.addItem(self.info_text, row=1, col=0, colspan=heatmap_width + spectrogram_width)
+        self.addItem(
+            self.info_text, row=1, col=0, colspan=heatmap_width + spectrogram_width
+        )
 
         for i in range(heatmap_width + spectrogram_width):
             self.ci.layout.setColumnStretchFactor(i, 1)
@@ -245,11 +247,15 @@ class DataPlotter(pg.GraphicsLayoutWidget):
 
         if self.update_counter % self.update_interval == 0:
             self.spec_curve.setData(freq_data, self.y_pos_data)
-            heatmap_data_rotate = np.roll(self.heatmap_data, -heatmap_update_idx, axis=0)
+            heatmap_data_rotate = np.roll(
+                self.heatmap_data, -heatmap_update_idx, axis=0
+            )
             self.heatmap_item.setImage(heatmap_data_rotate, autoLevels=False)
-            
-            self.info_text.setText(f"<div style='white-space: pre; font-family: \"Courier New\", Courier, monospace;'>{info_text}</div>")
-            
+
+            self.info_text.setText(
+                f"<div style='white-space: pre; font-family: \"Courier New\", Courier, monospace;'>{info_text}</div>"
+            )
+
             QtWidgets.QApplication.processEvents()
             return True
         return False
@@ -315,9 +321,7 @@ if __name__ == "__main__":
         freq_points=freq_points,
         delta_arg=delta_arg,
         chunk_size=chunk_size,
-        smoothing_log=np.log(0.1)
-        * delta_hertz
-        / (sampler.rate * freq_resol_ratio),
+        smoothing_log=np.log(0.1) * delta_hertz / (sampler.rate * freq_resol_ratio),
     )
 
     result_queue = mp.Queue()
