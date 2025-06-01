@@ -167,7 +167,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
 
         # グラフの生成
         self.setWindowTitle("FFT")
-        self.resize(2400, 600)
+        self.resize(2400, 1200)
 
         self.heatmap_plot = self.addPlot(
             row=0, col=0, title="Heatmap", colspan=heatmap_width
@@ -283,6 +283,7 @@ def fft_worker_func(sampler, fft_processor, result_queue, stop_event):
 
 
 if __name__ == "__main__":
+    pg.setConfigOptions(useOpenGL=True)
     app = QtWidgets.QApplication([])
 
     device_index = select_audio_device()
@@ -302,6 +303,7 @@ if __name__ == "__main__":
         heatmap_size=sampler.rate // chunk_size * 3,
     )
     data_plotter.show()
+    data_plotter.activateWindow()
 
     stream = sampler.stream
     print(
