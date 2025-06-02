@@ -175,6 +175,8 @@ class EWSDecoder:
         }
     )(MOD10_YEAR_CODES, seireki_to_showa, LATEST_YEAR)
 
+    RESULT_BLOCK_END = "BLOCK_END"
+
     @staticmethod
     def receive_n_bits(first_yield, n):
         results = []
@@ -188,7 +190,7 @@ class EWSDecoder:
     @classmethod
     def decode(cls):
         last_output = None
-        
+
         # 前置符号
         pre_code = yield from cls.receive_n_bits(last_output, 4)
         if pre_code == cls.PRE_START_CODE:
@@ -311,7 +313,7 @@ class EWSDecoder:
                 raise ValueError(
                     f"Unexpected year_time_code_tail: {year_time_code_tail}"
                 )
-            last_output = ""
+            last_output = cls.RESULT_BLOCK_END
 
 
 class FSK:
@@ -324,8 +326,7 @@ class FSK:
         accept_freq_diff,
         peak_width_ratio,
         signal_noise_threshold,
-        ignored_interval,
-        bit_length_bias,
+        required_signal_ratio,
     ):
         self.freq_points = freq_points
         self.freq_list = signal_freq_list
@@ -335,24 +336,17 @@ class FSK:
         self.accept_freq_diff = accept_freq_diff
         self.peak_width_ratio = peak_width_ratio
         self.signal_noise_threshold = signal_noise_threshold
-        ignored_interval = int(round(ignored_interval * self.sample_per_bit))
-        self.ignored_interval = ignored_interval
-        self.bit_length_bias = bit_length_bias
+        self.required_signal_len = int(round(sample_per_bit * required_signal_ratio))
 
-        self.signal_start = [-ignored_interval - 100] * len(self.freq_list)
-        self.signal_finish = [-ignored_interval - 100] * len(self.freq_list)
+        self.peak_mask = self.get_peak_mask()
 
         self.update_count = 0
 
-        self.peak_mask = self.get_peak_mask()
-        
-        self.total = 0
-        self.decoder = EWSDecoder.decode()
-        self.decoder.__next__()
-        
+        self.history = [None] * self.sample_per_bit
+
         self.lock_time = None
-        
-        self.file = open("signal_data.txt", "w", encoding="utf-8")
+
+        self.decoder = None
 
     def get_peak_mask(self):
         peak_mask = np.ones(self.freq_points, dtype=bool)
@@ -404,10 +398,10 @@ class FSK:
                 if abs(peak_freq - signal_freq) <= self.accept_freq_diff:
                     signal_idx = idx
                     break
-            if signal_idx == -1:
+            if signal_idx == -1 or signal_idx in detected_signals:
                 if non_signal_peak is None:
                     non_signal_peak = peak_amplitude
-            elif signal_idx not in detected_signals:
+            else:
                 detected_signals.append(signal_idx)
                 detected_signal_amplitudes.append(peak_amplitude)
 
@@ -421,49 +415,54 @@ class FSK:
             )
             if amplitude >= threshold
         ]
-        # if (
-        #     self.update_count - max(self.signal_finish) < 50
-        #     and self.update_count % 5 == 0
-        # ):
-        #     print(filtered_signals, peak_amplitudes, peak_freqs, flush=False)
+
         return filtered_signals
 
     def update(self, freq_data):
         self.update_count += 1
 
         signals = self.find_signal(freq_data)
-        self.file.write(
-            " ".join(map(str, [f"{self.update_count/self.sample_per_bit:.2f}"] + signals)) + "\n"
-        )
-        self.file.flush()
-            
-        
-        # if self.lock_time is not None and (self.update_count - self.lock_time) % self.sample_per_bit == 0:
-        #     print(self.update_count / self.sample_per_bit, signals)
 
-        for idx, _ in enumerate(self.freq_list):
-            interval = self.update_count - self.signal_finish[idx]
-            if idx in signals:
-                self.signal_finish[idx] = self.update_count
-                if interval > self.ignored_interval:
-                    self.signal_start[idx] = self.update_count
-            elif interval == self.ignored_interval:
-                duration = self.signal_finish[idx] - self.signal_start[idx]
-                n_bits = int(duration / self.sample_per_bit + self.bit_length_bias)
-                if n_bits > 0:
-                    if self.lock_time is None:
-                        self.lock_time = self.signal_start[idx] + 5
-                    self.total += n_bits
-                    print(self.signal_start[idx] / self.sample_per_bit, str(idx) * n_bits, self.total)
-                    # for _ in range(n_bits):
-                    #     try:
-                    #         res = self.decoder.send(str(idx))
-                    #         if res is not None:
-                    #             print(res)
-                    #     except StopIteration:
-                    #         self.decoder = EWSDecoder.decode()
-                    #         self.decoder.__next__()
-                # print(
-                #     f"Time {self.update_count / self.sample_per_bit}, "
-                #     + f"Signal {idx} duration: {duration}, bits: {duration / self.sample_per_bit}"
-                # )
+        self.history.pop(0)
+        if signals:
+            self.history.append(signals[0])
+        else:
+            self.history.append(None)
+
+        signal_counts = [
+            self.history.count(idx) for idx, _ in enumerate(self.freq_list)
+        ]
+        max_count = max(signal_counts)
+
+        if self.lock_time is None:
+            if max_count >= self.required_signal_len:
+                self.lock_time = self.update_count - self.required_signal_len
+
+                self.decoder = EWSDecoder.decode()
+                self.decoder.__next__()
+
+                print(f"Signal locked at {self.update_count}", flush=True)
+        elif (self.update_count - self.lock_time) % self.sample_per_bit == 0:
+            if max_count < self.required_signal_len:
+                duration = (
+                    self.update_count - self.lock_time
+                ) // self.sample_per_bit - 1
+                print(f"\nSignal lost after {duration} bits\n", flush=True)
+                self.lock_time = None
+            else:
+                bit = str(signal_counts.index(max_count))
+                print(bit, end="", flush=True)
+                try:
+                    res = self.decoder.send(bit)
+                    if res == EWSDecoder.RESULT_BLOCK_END:
+                        print(" (End of block)", flush=True)
+                    elif res is None:
+                        pass
+                    elif res == "":
+                        print(" ", end="", flush=True)
+                    else:
+                        print(f" ({res}) ", end="", flush=True)
+                except Exception as e:
+                    print(f"\nError: {e}", flush=True)
+                    self.decoder = EWSDecoder.decode()
+                    self.decoder.__next__()
