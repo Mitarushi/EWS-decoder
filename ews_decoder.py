@@ -188,17 +188,18 @@ class EWSDecoder:
     @classmethod
     def decode(cls):
         last_output = None
-        while True:
-            # 前置符号
-            pre_code = yield from cls.receive_n_bits(last_output, 4)
-            if pre_code == cls.PRE_START_CODE:
-                last_output = "第1/2種開始信号"
-            elif pre_code == cls.PRE_END_CODE:
-                last_output = "終了信号"
-            else:
-                raise ValueError(f"Unexpected pre_code: {pre_code}")
-            is_end = pre_code == cls.PRE_END_CODE
+        
+        # 前置符号
+        pre_code = yield from cls.receive_n_bits(last_output, 4)
+        if pre_code == cls.PRE_START_CODE:
+            last_output = "第1/2種開始信号"
+        elif pre_code == cls.PRE_END_CODE:
+            last_output = "終了信号"
+        else:
+            raise ValueError(f"Unexpected pre_code: {pre_code}")
+        is_end = pre_code == cls.PRE_END_CODE
 
+        while True:
             # 固定符号
             static_code = yield from cls.receive_n_bits(last_output, 16)
             if static_code == cls.STATIC_PRIMARY_START_CODE:
@@ -267,6 +268,19 @@ class EWSDecoder:
                     f"Unexpected month_day_code_tail: {month_day_code_tail}"
                 )
             last_output = ""
+
+            # 固定符号3
+            static_code3 = yield from cls.receive_n_bits(last_output, 16)
+            if static_code3 != static_code2:
+                raise ValueError(
+                    f"Static codes do not match: {static_code2} != {static_code3}"
+                )
+            if static_code3 == cls.STATIC_PRIMARY_START_CODE:
+                last_output = "第1種開始信号/終了信号"
+            elif static_code3 == cls.STATIC_SECONDARY_START_CODE:
+                last_output = "第2種開始信号"
+            else:
+                raise ValueError(f"Unexpected static_code3: {static_code3}")
 
             # 年時区分符号
             year_time_code_head = yield from cls.receive_n_bits(last_output, 3)
