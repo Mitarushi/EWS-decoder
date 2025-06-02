@@ -11,7 +11,7 @@ from ews_decoder import FSK
 
 def select_audio_device():
     return 27
-    
+
     audio = pyaudio.PyAudio()
     device_count = audio.get_device_count()
     print("Available audio devices:")
@@ -143,7 +143,8 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         spectrogram_width = 1
 
         self.heatmap_size = heatmap_size
-        self.heatmap_data = np.zeros((heatmap_size, freq_points))
+        # 二倍用意しておいて円環のときのテク
+        self.heatmap_data = np.zeros((heatmap_size * 2, freq_points))
 
         # 対数表示のため、グラフ内のyラベルは実際の値と異なる
         self.y_pos_data = np.arange(freq_points)
@@ -171,7 +172,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
 
         # グラフの生成
         self.setWindowTitle("FFT")
-        self.resize(2400, 1200)
+        self.resize(2400, 1100)
 
         self.heatmap_plot = self.addPlot(
             row=0, col=0, title="Spectrogram", colspan=heatmap_width
@@ -183,7 +184,7 @@ class DataPlotter(pg.GraphicsLayoutWidget):
         self.heatmap_plot.showGrid(x=True, y=True)
         self.heatmap_plot.disableAutoRange()
         self.heatmap_item = pg.ImageItem(
-            self.heatmap_data,
+            self.heatmap_data[: self.heatmap_size],
             autoLevels=False,
             levels=(0, max_amp),
             rect=pg.QtCore.QRectF(-heatmap_size, 0, heatmap_size, freq_points),
@@ -248,12 +249,14 @@ class DataPlotter(pg.GraphicsLayoutWidget):
 
         heatmap_update_idx = self.update_counter % self.heatmap_size
         self.heatmap_data[heatmap_update_idx, :] = freq_data
+        self.heatmap_data[heatmap_update_idx + self.heatmap_size, :] = freq_data
 
         if self.update_counter % self.update_interval == 0:
             self.spec_curve.setData(freq_data, self.y_pos_data)
-            heatmap_data_rotate = np.roll(
-                self.heatmap_data, -heatmap_update_idx - 1, axis=0
-            )
+
+            heatmap_data_rotate = self.heatmap_data[
+                heatmap_update_idx + 1 : heatmap_update_idx + 1 + self.heatmap_size
+            ]
             self.heatmap_item.setImage(heatmap_data_rotate, autoLevels=False)
 
             self.info_text.setText(
@@ -304,7 +307,7 @@ if __name__ == "__main__":
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
 
-    plot_update_rate = 10
+    plot_update_rate = 30
     update_interval = sampler.rate // chunk_size // plot_update_rate
     data_plotter = DataPlotter(
         freq_points=freq_points,
@@ -320,7 +323,7 @@ if __name__ == "__main__":
         f"Sampling from device: {sampler.device_info['name']} at {sampler.rate}Hz with {sampler.channels} channels."
     )
 
-    freq_resol_ratio = 15
+    freq_resol_ratio = 20
     fft_processor = LowFreqFFT(
         freq_points=freq_points,
         delta_arg=delta_arg,
@@ -343,9 +346,8 @@ if __name__ == "__main__":
         sample_per_bit=sampler.rate // chunk_size // 64,
         accept_freq_diff=5,
         peak_width_ratio=0.2,
-        signal_noise_threshold=2.5,
-        ignored_interval=0.2,
-        bit_length_bias=0.3,
+        signal_noise_threshold=3,
+        required_signal_ratio=0.5,
     )
 
     timer = QtCore.QTimer()
