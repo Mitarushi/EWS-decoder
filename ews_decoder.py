@@ -286,7 +286,7 @@ class EWSDecoder:
 
             # 年時区分符号
             year_time_code_head = yield from cls.receive_n_bits(last_output, 3)
-            if year_time_code_head != ("100" if is_end else "011"):
+            if year_time_code_head != ("101" if is_end else "011"):
                 raise ValueError(
                     f"Unexpected year_time_code_head: {year_time_code_head}"
                 )

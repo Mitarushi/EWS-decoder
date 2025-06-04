@@ -10,8 +10,6 @@ from ews_decoder import FSK
 
 
 def select_audio_device():
-    return 27
-
     audio = pyaudio.PyAudio()
     device_count = audio.get_device_count()
     print("Available audio devices:")
@@ -307,7 +305,7 @@ if __name__ == "__main__":
     delta_arg = 2 * np.pi * delta_hertz / sampler.rate
     freq_points = 2000
 
-    plot_update_rate = 30
+    plot_update_rate = 20
     update_interval = sampler.rate // chunk_size // plot_update_rate
     data_plotter = DataPlotter(
         freq_points=freq_points,
@@ -344,10 +342,10 @@ if __name__ == "__main__":
         signal_freq_list=[640, 1024],
         delta_hertz=delta_hertz,
         sample_per_bit=sampler.rate // chunk_size // 64,
-        accept_freq_diff=5,
+        accept_freq_diff=3,
         peak_width_ratio=0.2,
-        signal_noise_threshold=3,
-        required_signal_ratio=0.5,
+        signal_noise_threshold=2.5,
+        required_signal_ratio=0.1,
     )
 
     timer = QtCore.QTimer()
